@@ -1,0 +1,168 @@
+---
+title: "Case1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/sm/Dropbox/DTU/CompDatAn/Case1/repo/")
+getwd()
+library(magrittr)
+library(skimr)
+library(ggplot2)   ## Grammar of graphics
+library(reshape2)
+library(corrplot)## Reshaping data frames
+library(lattice)   ## More graphics
+library(hexbin)    ## and more graphics
+library(gridExtra) ## ... and more graphics
+library(xtable)    ## LaTeX formatting of tables
+library(splines)   ## Splines -- surprise :-)
+library(survival)  ## Survival analysis
+library(grid)      ## For 'unit'
+library(lpSolve)   ## Linear programming
+library(Matrix)
+library(printr)
+library(tidyverse)
+library(dplyr)
+library(MASS)
+library(vip)
+library(tidymodels)
+df <- read.table(glue::glue("../data/case1Data.txt"), sep = ",", header = T) %>% 
+  janitor::clean_names()
+dfNew <- read.table(glue::glue("../data/case1Data_Xnew.txt"), sep = ",", header = T) %>% 
+  janitor::clean_names()
+
+# Categorical variables:
+
+cols <- df %>% dplyr::select(starts_with("C_")) %>% colnames()
+
+for(i in 1:length(cols)){
+      
+      df[,cols[i]][df[,cols[i]] == " NaN"] <- NA
+      dfNew[,cols[i]][dfNew[,cols[i]] == " NaN"] <- NA
+    }
+
+# Cleaning up spaces
+
+data.table::setDT(df)
+data.table::setDT(dfNew)
+
+
+df[,c(cols) := lapply(.SD, trimws), .SDcols = cols]
+dfNew[,c(cols) := lapply(.SD, trimws), .SDcols = cols]
+
+
+# Sourcing Models
+
+source(glue::glue("models.R"))
+```
+
+The dataset is synthetic and there are some correlations. But as long as we're not really interested in anything inference-interpretation related, we can just carry on trying to predict. 
+
+### Splits and Cross-Validation
+
+```{r}
+set.seed(69420)
+split <- initial_split(df %>% janitor::clean_names(),
+                       prop = 0.75,
+                       strata = NULL)
+train <- training(split)
+test <- testing(split)
+
+cv_folds <- rsample::vfold_cv(train, v = 5)
+```
+
+
+### Recipe
+
+```{r}
+# KNN Impute recipe
+rec1 <- recipe(y ~ ., data = train) %>%
+  step_zv(all_numeric(), -all_outcomes()) %>%
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  step_knnimpute(starts_with("c_"),
+                 impute_with = imp_vars(all_numeric())) %>% 
+  step_dummy(all_nominal())
+
+# Mode Impute recipe (Fills with most frequent)
+rec2 <- recipe(y ~ ., data = train) %>%
+  step_zv(all_numeric(), -all_outcomes()) %>%
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  step_modeimpute(starts_with("c_")) %>% 
+  step_dummy(all_nominal())
+
+# Unknown Impute recipe (creates a new category)
+rec3 <- recipe(y ~ ., data = train) %>%
+  step_zv(all_numeric(), -all_outcomes()) %>%
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  step_unknown(starts_with("c_")) %>% 
+  step_dummy(all_nominal())
+
+# No impute... Removes the nominal values
+rec4 <- recipe(y ~ ., data = train) %>%
+  step_zv(all_numeric(), -all_outcomes()) %>%
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  step_rm(starts_with("c_"))
+
+```
+
+
+### Run experiments on train data:
+```{r}
+run_experiments <- function(recipies, cv_folds){
+  results <- dplyr::tibble(Models = c("MARS", "LASSO", "XgBoost", "RF"), 
+                           KNN_Impute= rep(NA,4),
+                           Mode_Impute= rep(NA,4),
+                           Unknown_Impute= rep(NA,4),
+                           RemoveCats = rep(NA,4)) %>% as.data.frame()
+  models <- list(RF=list(),
+                 MARS=list(),
+                 LASSO=list(),
+                 XgBoost= list())
+  for (i in 1:4){
+    
+  RF <- RF_fit(recipies[[i]], cv_folds)  
+  MARS <-Mars(recipies[[i]], cv_folds)
+  LASSO <- RegReg(recipies[[i]], cv_folds)
+  XgBoost <- XgBoost(recipies[[i]], cv_folds)
+  
+    
+   results[4,i+1] <- RF[[2]]$mean  
+   results[1,i+1] <- MARS[[2]]$mean
+   results[2,i+1] <- LASSO[[1]]$mean
+   results[3,i+1] <- XgBoost[[1]]$mean
+   
+   models$RF[[i]] <- RF
+   models$MARS[[i]] <- MARS
+   models$LASSO[[i]] <- LASSO
+   models$XgBoost[[i]] <- XgBoost
+
+  }
+  
+  return(list(results, models))
+}
+
+res <- run_experiments(
+  recipies = list(rec1,rec2,rec3,rec4),
+  cv_folds = cv_folds
+)
+
+knitr::kable(res[[1]])
+
+```
+
+Mars is obviously the winner by far! :) 
+
+```{r}
+best_model <- res[[2]]$MARS[[3]][[4]]
+
+done <- fit(best_model, test)
+
+done %>% 
+  predict(test) %>% 
+  bind_cols(test) %>% 
+  metrics(y, .pred) 
+```
+
+
+Pretty good.
