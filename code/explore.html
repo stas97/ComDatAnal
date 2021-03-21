@@ -204,6 +204,7 @@ rec3 &lt;- recipe(y ~ ., data = train) %&gt;%
   step_zv(all_numeric(), -all_outcomes()) %&gt;%
   step_normalize(all_numeric(), -all_outcomes()) %&gt;% 
   step_unknown(starts_with(&quot;c_&quot;)) %&gt;% 
+  step_string2factor(all_nominal()) %&gt;% 
   step_dummy(all_nominal())
 
 # No impute... Removes the nominal values
@@ -401,17 +402,17 @@ best_RF &lt;- res_1[[2]]$RF[[1]][[4]]
 <tr class="odd">
 <td align="left">rmse</td>
 <td align="left">standard</td>
-<td align="right">42.2712934</td>
+<td align="right">41.9562168</td>
 </tr>
 <tr class="even">
 <td align="left">rsq</td>
 <td align="left">standard</td>
-<td align="right">0.6824487</td>
+<td align="right">0.6891117</td>
 </tr>
 <tr class="odd">
 <td align="left">mae</td>
 <td align="left">standard</td>
-<td align="right">33.7102247</td>
+<td align="right">33.5679956</td>
 </tr>
 </tbody>
 </table>
@@ -444,7 +445,7 @@ best_RF &lt;- res_1[[2]]$RF[[1]][[4]]
 </table>
 <pre class="r"><code>done &lt;- fit(best_mars, train)
 
-fit(res_2[[2]]$MARS[[1]][[4]], train)$fit$fit$fit$coefficients %&gt;% knitr::kable()</code></pre>
+done$fit$fit$fit$coefficients %&gt;% knitr::kable()</code></pre>
 <table>
 <thead>
 <tr class="header">
@@ -652,7 +653,25 @@ fit(res_2[[2]]$MARS[[1]][[4]], train)$fit$fit$fit$coefficients %&gt;% knitr::kab
 <pre class="r"><code>done %&gt;% 
   predict(test) %&gt;% 
   bind_cols(test) %&gt;% 
-  metrics(y, .pred) </code></pre>
+  metrics(y, .pred) %&gt;% 
+  dplyr::filter(.metric == &quot;rmse&quot;) %&gt;% 
+  dplyr::pull(.estimate) %&gt;% unlist() %&gt;% 
+  write.table(file= &quot;estimatedRMSE_s210527_s210671.txt&quot;,
+              row.names = FALSE,
+              col.names = FALSE)
+
+done %&gt;% 
+  predict(dfNew) %&gt;% 
+  bind_cols(dfNew) %&gt;% 
+  dplyr::pull(.pred) %&gt;% 
+  write.table(file= &quot;prediction_s210527_s210671.txt&quot;,
+              row.names = FALSE,
+              col.names = FALSE)
+
+done %&gt;% 
+  predict(test) %&gt;% 
+  bind_cols(test) %&gt;% 
+  metrics(y, .pred)</code></pre>
 <table>
 <thead>
 <tr class="header">
