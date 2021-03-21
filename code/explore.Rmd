@@ -69,7 +69,9 @@ split <- initial_split(df %>% janitor::clean_names(),
 train <- training(split)
 test <- testing(split)
 
-cv_folds <- rsample::vfold_cv(train, v = 5)
+cv_folds <- rsample::vfold_cv(train, v = 10)
+cv_folds_rep <- rsample::vfold_cv(train, v = 10,
+                                  repeats = 10)
 ```
 
 
@@ -96,6 +98,7 @@ rec3 <- recipe(y ~ ., data = train) %>%
   step_zv(all_numeric(), -all_outcomes()) %>%
   step_normalize(all_numeric(), -all_outcomes()) %>% 
   step_unknown(starts_with("c_")) %>% 
+  step_string2factor(all_nominal()) %>% 
   step_dummy(all_nominal())
 
 # No impute... Removes the nominal values
@@ -109,6 +112,13 @@ rec4 <- recipe(y ~ ., data = train) %>%
 
 ### Run experiments on train data:
 ```{r}
+# Set training or loading
+
+trained <- TRUE
+
+
+
+if (!trained){
 run_experiments <- function(recipies, cv_folds){
   results <- dplyr::tibble(Models = c("MARS", "LASSO", "XgBoost", "RF"), 
                            KNN_Impute= rep(NA,4),
@@ -142,26 +152,68 @@ run_experiments <- function(recipies, cv_folds){
   return(list(results, models))
 }
 
-res <- run_experiments(
+res_1 <- run_experiments(
   recipies = list(rec1,rec2,rec3,rec4),
   cv_folds = cv_folds
 )
 
-knitr::kable(res[[1]])
+res_2 <- run_experiments(
+  recipies = list(rec1,rec2,rec3,rec4),
+  cv_folds = cv_folds_rep
+)
+
+saveRDS(res_1, file = "CV_results.Rdata")
+saveRDS(res_2, file = "RepCV_results.Rdata")
+}else{
+  res_1 <- readRDS("CV_results.Rdata")
+  res_2 <- readRDS("RepCV_results.Rdata")
+}
+
+
+knitr::kable(res_1[[1]])
+knitr::kable(res_2[[1]])
 
 ```
 
 Mars is obviously the winner by far! :) 
 
 ```{r}
-best_model <- res[[2]]$MARS[[3]][[4]]
+best_mars <- res_2[[2]]$MARS[[3]][[4]]
+best_lasso <- res_1[[2]]$LASSO[[4]][[2]]
+best_RF <- res_1[[2]]$RF[[1]][[4]]
 
-done <- fit(best_model, test)
+ fit(best_mars,train) %>% pull_workflow_fit() %>% predict(bake(prep(rec3, train), test)) %>% bind_cols(test) %>% metrics(y,.pred)
+ fit(best_RF,train) %>% pull_workflow_fit() %>% predict(bake(prep(rec1, train), test)) %>% bind_cols(test) %>% metrics(y,.pred)
+ fit(best_lasso,train) %>% pull_workflow_fit() %>% predict(bake(prep(rec4, train), test)) %>% bind_cols(test) %>% metrics(y,.pred)
+
+done <- fit(best_mars, train)
+
+done$fit$fit$fit$coefficients %>% knitr::kable()
+fit(res_2[[2]]$MARS[[3]][[4]], train)$fit$fit$fit$coefficients %>% knitr::kable()
+fit(res_2[[2]]$MARS[[4]][[4]], train)$fit$fit$fit$coefficients %>% knitr::kable()
 
 done %>% 
   predict(test) %>% 
   bind_cols(test) %>% 
-  metrics(y, .pred) 
+  metrics(y, .pred) %>% 
+  dplyr::filter(.metric == "rmse") %>% 
+  dplyr::pull(.estimate) %>% unlist() %>% 
+  write.table(file= "estimatedRMSE_s210527_s210671.txt",
+              row.names = FALSE,
+              col.names = FALSE)
+
+done %>% 
+  predict(dfNew) %>% 
+  bind_cols(dfNew) %>% 
+  dplyr::pull(.pred) %>% 
+  write.table(file= "prediction_s210527_s210671.txt",
+              row.names = FALSE,
+              col.names = FALSE)
+
+done %>% 
+  predict(test) %>% 
+  bind_cols(test) %>% 
+  metrics(y, .pred)
 ```
 
 

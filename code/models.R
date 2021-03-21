@@ -51,7 +51,7 @@ RF_fit<-function(rec, cv_folds){
     ) %>%
     vip(geom = "col")
   
-  return(list(plot,RMSE_best,vip,final_rf )) 
+  return(list(plot,RMSE_best,vip,final_model )) 
 }
 
 
@@ -185,9 +185,9 @@ XgBoost <- function(rec, cv_folds){
   xgboost_params <- 
     dials::parameters(
       min_n(),
-      tree_depth(),
-      learn_rate(),
-      loss_reduction()
+      tree_depth(c(1,3)),
+      learn_rate(c(-4,1)),
+      loss_reduction(c(-1,2))
     )
   
   xgboost_grid <- 
@@ -222,8 +222,8 @@ XgBoost <- function(rec, cv_folds){
   RMSE_best<-show_best(xgboost_tuned, "rmse", n = 1) #Cross-Validation RMSE for best tuned model
   
   
-  xgboost_model_final <- xgboost_model %>% 
-    finalize_model(xgboost_best_params)
+  xgboost_model_final <-finalize_workflow(xgboost_wf %>% update_model(xgboost_model),
+                      xgboost_best_params)
   
   # vip<-final_model %>%      #variable importance plot
   #   set_engine("xgboost") %>%
